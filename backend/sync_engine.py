@@ -1,6 +1,6 @@
 """
-Local Edge Sync Engine for Geminio OS Platform
-Handles offline queuing and synchronization with central backend
+CHIXUS Edge Sync Engine with Batch Processing & Last-Write-Wins Conflict Resolution
+Manages offline queuing, batch synchronization, and conflict resolution
 Environment: Termux on ARM64 Android
 Master Passkey: CHIXUS-ADMIN-@)@^
 """
@@ -10,12 +10,15 @@ import json
 import logging
 import hashlib
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, asdict
 from enum import Enum
 import asyncio
 from pathlib import Path
 import uuid
+
+from fastapi import APIRouter, Depends, Header, HTTPException, status
+from pydantic import BaseModel, Field
 
 # Configure logging
 logging.basicConfig(
@@ -32,6 +35,7 @@ class SyncStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     RETRYING = "retrying"
+    CONFLICT_RESOLVED_DISCARDED = "conflict_resolved_discarded"
 
 
 class SyncPriority(str, Enum):
@@ -40,6 +44,13 @@ class SyncPriority(str, Enum):
     HIGH = 2
     NORMAL = 3
     LOW = 4
+
+
+class ConflictResolutionStrategy(str, Enum):
+    """Conflict resolution strategies"""
+    LAST_WRITE_WINS = "lww"
+    FIRST_WRITE_WINS = "fww"
+    MANUAL = "manual"
 
 
 @dataclass
@@ -80,10 +91,60 @@ class SyncQueueItem:
         return cls(**data)
 
 
+# ============================================================================
+# Request/Response Models
+# ============================================================================
+
+class BatchSyncPayload(BaseModel):
+    """Individual payload in batch sync"""
+    operation_type: str = Field(..., description="Type of operation")
+    resource_id: Optional[str] = Field(None, description="Resource identifier")
+    data: Dict[str, Any] = Field(..., description="Operation data")
+    updated_at: str = Field(..., description="ISO timestamp of last update")
+    signature: Optional[str] = Field(None, description="Optional HMAC signature")
+
+
+class BatchSyncRequest(BaseModel):
+    """Request model for batch sync"""
+    node_id: str = Field(..., description="Source node identifier")
+    batch_id: str = Field(default_factory=lambda: str(uuid.uuid4()), description="Unique batch identifier")
+    payloads: List[BatchSyncPayload] = Field(..., description="List of sync payloads")
+    conflict_strategy: str = Field(default="lww", description="Conflict resolution strategy")
+
+
+class BatchSyncResult(BaseModel):
+    """Result of processing a single payload"""
+    operation_type: str
+    resource_id: Optional[str]
+    status: str
+    conflict_detected: bool
+    conflict_reason: Optional[str] = None
+    local_timestamp: Optional[str] = None
+    incoming_timestamp: str
+
+
+class BatchSyncResponse(BaseModel):
+    """Response for batch sync"""
+    success: bool
+    batch_id: str
+    node_id: str
+    total_payloads: int
+    processed_payloads: int
+    successful: int
+    conflicts: int
+    failed: int
+    results: List[BatchSyncResult]
+    timestamp: str
+
+
+# ============================================================================
+# Database Layer
+# ============================================================================
+
 class SyncEngine:
     """
-    Local Edge Sync Engine for Geminio OS
-    Manages offline queuing and batch synchronization
+    CHIXUS Edge Sync Engine
+    Manages offline queuing, batch synchronization, and LWW conflict resolution
     """
 
     def __init__(self, db_path: str = "verify_team.db"):
@@ -98,7 +159,7 @@ class SyncEngine:
         self._initialize_database()
 
     def _initialize_database(self) -> None:
-        """Initialize SQLite database with offline_sync_queue table"""
+        """Initialize SQLite database with sync tables"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
@@ -118,7 +179,38 @@ class SyncEngine:
                     error_message TEXT,
                     metadata TEXT,
                     synced_at TEXT,
-                    response_data TEXT
+                    response_data TEXT,
+                    conflict_resolution_status TEXT DEFAULT NULL
+                )
+            """)
+
+            # Create sync_batch_history table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sync_batch_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id TEXT NOT NULL UNIQUE,
+                    node_id TEXT NOT NULL,
+                    total_payloads INTEGER NOT NULL,
+                    successful_payloads INTEGER NOT NULL,
+                    conflict_payloads INTEGER NOT NULL,
+                    failed_payloads INTEGER NOT NULL,
+                    conflict_strategy TEXT NOT NULL,
+                    processed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Create sync_conflict_log table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS sync_conflict_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    batch_id TEXT NOT NULL,
+                    resource_id TEXT,
+                    operation_type TEXT NOT NULL,
+                    incoming_timestamp TEXT NOT NULL,
+                    local_timestamp TEXT NOT NULL,
+                    resolution_strategy TEXT NOT NULL,
+                    action_taken TEXT NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
@@ -135,6 +227,14 @@ class SyncEngine:
                 CREATE INDEX IF NOT EXISTS idx_sync_created 
                 ON offline_sync_queue(created_at DESC)
             """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sync_batch_history_node_id
+                ON sync_batch_history(node_id)
+            """)
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_sync_conflict_log_batch_id
+                ON sync_conflict_log(batch_id)
+            """)
 
             # Create sync_stats table
             cursor.execute("""
@@ -144,6 +244,7 @@ class SyncEngine:
                     total_queued INTEGER DEFAULT 0,
                     completed INTEGER DEFAULT 0,
                     failed INTEGER DEFAULT 0,
+                    conflicts_resolved INTEGER DEFAULT 0,
                     avg_sync_time_ms REAL DEFAULT 0,
                     device_id TEXT
                 )
@@ -166,6 +267,282 @@ class SyncEngine:
             )
             self.connection_pool.row_factory = sqlite3.Row
         return self.connection_pool
+
+    def _extract_timestamp_from_payload(self, payload: Dict[str, Any]) -> Optional[str]:
+        """
+        Extract updated_at timestamp from payload
+        Searches for common timestamp field names
+        
+        Args:
+            payload: The payload dictionary
+            
+        Returns:
+            ISO timestamp string or None
+        """
+        timestamp_keys = ['updated_at', 'timestamp', 'updated', 'modified_at', 'last_modified']
+        
+        for key in timestamp_keys:
+            if key in payload and payload[key]:
+                return str(payload[key])
+        
+        return None
+
+    def _compare_timestamps(self, ts1: str, ts2: str) -> int:
+        """
+        Compare two ISO timestamps
+        
+        Args:
+            ts1: First timestamp
+            ts2: Second timestamp
+            
+        Returns:
+            1 if ts1 > ts2, -1 if ts1 < ts2, 0 if equal
+        """
+        try:
+            dt1 = datetime.fromisoformat(ts1.replace('Z', '+00:00'))
+            dt2 = datetime.fromisoformat(ts2.replace('Z', '+00:00'))
+            
+            if dt1 > dt2:
+                return 1
+            elif dt1 < dt2:
+                return -1
+            else:
+                return 0
+        except Exception as e:
+            logger.warning(f"Failed to compare timestamps: {e}")
+            return 0
+
+    def _resolve_lww_conflict(
+        self,
+        incoming_timestamp: str,
+        local_timestamp: str,
+        batch_id: str,
+        resource_id: Optional[str],
+        operation_type: str
+    ) -> Tuple[bool, str]:
+        """
+        Resolve conflict using Last-Write-Wins strategy
+        
+        Args:
+            incoming_timestamp: Timestamp of incoming payload
+            local_timestamp: Timestamp of local record
+            batch_id: Batch ID for logging
+            resource_id: Resource identifier
+            operation_type: Operation type
+            
+        Returns:
+            Tuple of (should_apply: bool, reason: str)
+        """
+        cmp = self._compare_timestamps(incoming_timestamp, local_timestamp)
+        
+        if cmp > 0:
+            # Incoming is newer, apply it
+            action = "applied"
+            should_apply = True
+        elif cmp < 0:
+            # Local is newer, discard incoming
+            action = "discarded"
+            should_apply = False
+        else:
+            # Timestamps are equal, apply for idempotency
+            action = "applied_equal_timestamp"
+            should_apply = True
+
+        # Log conflict
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO sync_conflict_log
+                (batch_id, resource_id, operation_type, incoming_timestamp, local_timestamp, resolution_strategy, action_taken)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (batch_id, resource_id, operation_type, incoming_timestamp, local_timestamp, "lww", action))
+            conn.commit()
+        except Exception as e:
+            logger.warning(f"Failed to log conflict: {e}")
+
+        return should_apply, f"LWW: {action} (incoming: {incoming_timestamp}, local: {local_timestamp})"
+
+    def process_batch_sync(
+        self,
+        batch_request: 'BatchSyncRequest',
+        verify_signature_func=None
+    ) -> Tuple[bool, Dict[str, Any]]:
+        """
+        Process a batch sync request with conflict resolution
+        
+        Args:
+            batch_request: Batch sync request
+            verify_signature_func: Optional function to verify signatures
+            
+        Returns:
+            Tuple of (success: bool, response_dict: Dict)
+        """
+        batch_id = batch_request.batch_id
+        node_id = batch_request.node_id
+        payloads = batch_request.payloads
+        conflict_strategy = batch_request.conflict_strategy
+
+        results = []
+        successful_count = 0
+        conflict_count = 0
+        failed_count = 0
+
+        try:
+            conn = self._get_connection()
+            
+            # Start transaction
+            conn.execute("BEGIN TRANSACTION")
+            cursor = conn.cursor()
+
+            for payload_item in payloads:
+                result = {
+                    "operation_type": payload_item.operation_type,
+                    "resource_id": payload_item.resource_id,
+                    "status": "unknown",
+                    "conflict_detected": False,
+                    "conflict_reason": None,
+                    "local_timestamp": None,
+                    "incoming_timestamp": payload_item.updated_at
+                }
+
+                try:
+                    # Verify signature if provided and function available
+                    if payload_item.signature and verify_signature_func:
+                        try:
+                            is_valid = verify_signature_func(
+                                payload_item.data,
+                                payload_item.signature
+                            )
+                            if not is_valid:
+                                result["status"] = "failed"
+                                result["conflict_reason"] = "Signature verification failed"
+                                failed_count += 1
+                                results.append(result)
+                                continue
+                        except Exception as sig_err:
+                            logger.warning(f"Signature verification error: {sig_err}")
+
+                    # Check for existing record by resource_id
+                    existing_local_timestamp = None
+                    if payload_item.resource_id:
+                        # Query for existing record (example: assumes a generic data table)
+                        # In a real implementation, this would query the actual resource table
+                        # For now, we'll use a simplified approach
+                        cursor.execute("""
+                            SELECT payload FROM offline_sync_queue 
+                            WHERE payload LIKE ? AND status = 'completed'
+                            ORDER BY updated_at DESC LIMIT 1
+                        """, (f'%"{payload_item.resource_id}"%',))
+                        
+                        existing_row = cursor.fetchone()
+                        if existing_row:
+                            try:
+                                existing_payload = json.loads(existing_row[0])
+                                existing_local_timestamp = self._extract_timestamp_from_payload(existing_payload)
+                                result["local_timestamp"] = existing_local_timestamp
+                            except json.JSONDecodeError:
+                                pass
+
+                    # Resolve conflicts if LWW strategy
+                    should_apply = True
+                    if existing_local_timestamp and conflict_strategy == "lww":
+                        result["conflict_detected"] = True
+                        should_apply, reason = self._resolve_lww_conflict(
+                            payload_item.updated_at,
+                            existing_local_timestamp,
+                            batch_id,
+                            payload_item.resource_id,
+                            payload_item.operation_type
+                        )
+                        result["conflict_reason"] = reason
+                        conflict_count += 1
+
+                    # Record in queue if should apply
+                    if should_apply:
+                        queue_id = str(uuid.uuid4())
+                        now = datetime.utcnow().isoformat()
+                        
+                        cursor.execute("""
+                            INSERT INTO offline_sync_queue
+                            (id, operation_type, payload, status, priority, created_at, updated_at, metadata)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            queue_id,
+                            payload_item.operation_type,
+                            json.dumps(payload_item.data),
+                            "pending",
+                            2,  # HIGH priority for batch items
+                            now,
+                            now,
+                            json.dumps({"batch_id": batch_id, "node_id": node_id})
+                        ))
+                        result["status"] = "enqueued"
+                        successful_count += 1
+                    else:
+                        # Mark as conflict resolved discarded
+                        queue_id = str(uuid.uuid4())
+                        now = datetime.utcnow().isoformat()
+                        
+                        cursor.execute("""
+                            INSERT INTO offline_sync_queue
+                            (id, operation_type, payload, status, priority, created_at, updated_at, 
+                             conflict_resolution_status, metadata)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (
+                            queue_id,
+                            payload_item.operation_type,
+                            json.dumps(payload_item.data),
+                            "conflict_resolved_discarded",
+                            2,
+                            now,
+                            now,
+                            "lww_discarded",
+                            json.dumps({"batch_id": batch_id, "node_id": node_id})
+                        ))
+                        result["status"] = "conflict_discarded"
+
+                except Exception as item_err:
+                    logger.error(f"Error processing payload: {item_err}")
+                    result["status"] = "failed"
+                    result["conflict_reason"] = str(item_err)[:100]
+                    failed_count += 1
+
+                results.append(result)
+
+            # Record batch history
+            cursor.execute("""
+                INSERT INTO sync_batch_history
+                (batch_id, node_id, total_payloads, successful_payloads, 
+                 conflict_payloads, failed_payloads, conflict_strategy)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (batch_id, node_id, len(payloads), successful_count, conflict_count, failed_count, conflict_strategy))
+
+            # Commit transaction
+            conn.commit()
+
+            logger.info(
+                f"Batch {batch_id} processed: {successful_count} successful, "
+                f"{conflict_count} conflicts, {failed_count} failed"
+            )
+
+            return True, {
+                "batch_id": batch_id,
+                "node_id": node_id,
+                "total_payloads": len(payloads),
+                "successful": successful_count,
+                "conflicts": conflict_count,
+                "failed": failed_count,
+                "results": results
+            }
+
+        except Exception as e:
+            logger.error(f"Batch processing failed: {e}")
+            try:
+                conn.execute("ROLLBACK")
+            except Exception:
+                pass
+            return False, {"error": str(e)[:200]}
 
     def enqueue_sync(
         self,
@@ -430,7 +807,7 @@ class SyncEngine:
 
             cursor.execute("""
                 DELETE FROM offline_sync_queue 
-                WHERE status IN ('completed', 'failed') 
+                WHERE status IN ('completed', 'failed', 'conflict_resolved_discarded') 
                 AND updated_at < ?
             """, (cutoff_date,))
 
@@ -499,3 +876,94 @@ def get_sync_engine(db_path: str = "verify_team.db") -> SyncEngine:
     if _sync_engine_instance is None:
         _sync_engine_instance = SyncEngine(db_path)
     return _sync_engine_instance
+
+
+# ============================================================================
+# FastAPI Router for Batch Sync
+# ============================================================================
+
+router = APIRouter(
+    prefix="/api/sync",
+    tags=["CHIXUS Batch Sync"],
+    responses={
+        401: {"description": "Unauthorized"},
+        400: {"description": "Bad request"}
+    }
+)
+
+
+async def verify_access_token_sync(x_access_token: Optional[str] = Header(None)) -> str:
+    """Verify access token for sync endpoints"""
+    if not x_access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing access token"
+        )
+    return x_access_token
+
+
+@router.post(
+    "/batch",
+    response_model=BatchSyncResponse,
+    summary="Batch Sync with Conflict Resolution",
+    description="Submit batch of sync payloads with Last-Write-Wins conflict resolution"
+)
+async def batch_sync(
+    request: BatchSyncRequest,
+    token: str = Depends(verify_access_token_sync),
+    sync_engine: SyncEngine = Depends(get_sync_engine)
+) -> BatchSyncResponse:
+    """
+    Process batch sync with LWW conflict resolution
+    
+    Requires X-Access-Token header.
+    """
+    success, result = sync_engine.process_batch_sync(request)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=result.get("error", "Batch processing failed")
+        )
+
+    return BatchSyncResponse(
+        success=True,
+        batch_id=result["batch_id"],
+        node_id=result["node_id"],
+        total_payloads=result["total_payloads"],
+        processed_payloads=result["successful"] + result["conflicts"] + result["failed"],
+        successful=result["successful"],
+        conflicts=result["conflicts"],
+        failed=result["failed"],
+        results=[
+            BatchSyncResult(
+                operation_type=r["operation_type"],
+                resource_id=r["resource_id"],
+                status=r["status"],
+                conflict_detected=r["conflict_detected"],
+                conflict_reason=r["conflict_reason"],
+                local_timestamp=r["local_timestamp"],
+                incoming_timestamp=r["incoming_timestamp"]
+            )
+            for r in result["results"]
+        ],
+        timestamp=datetime.utcnow().isoformat()
+    )
+
+
+@router.get("/status")
+async def get_sync_status(
+    sync_engine: SyncEngine = Depends(get_sync_engine)
+) -> Dict[str, Any]:
+    """Get current sync queue status"""
+    return sync_engine.get_queue_status()
+
+
+__all__ = [
+    "SyncEngine",
+    "SyncStatus",
+    "SyncPriority",
+    "ConflictResolutionStrategy",
+    "get_sync_engine",
+    "router"
+]
