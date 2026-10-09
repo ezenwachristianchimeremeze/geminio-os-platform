@@ -1,577 +1,423 @@
 <!DOCTYPE html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CHIXUS Platform Dashboard</title>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CHIXUS Edge Control</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%233b82f6'/><text x='50' y='60' font-size='60' font-weight='bold' text-anchor='middle' fill='white'>C</text></svg>">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              panel: '#0f172a',
+              card: '#111827',
+              accent: '#38bdf8',
+              success: '#22c55e',
+              warning: '#f59e0b',
+              danger: '#ef4444'
+            }
+          }
+        }
+      };
+    </script>
     <style>
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-        }
-        .status-indicator {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            margin-right: 8px;
-        }
-        .status-online {
-            background-color: #10b981;
-            box-shadow: 0 0 8px #10b981;
-        }
-        .status-offline {
-            background-color: #ef4444;
-            box-shadow: 0 0 8px #ef4444;
-        }
-        .pulse {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
-        @keyframes pulse {
-            0%, 100% {
-                opacity: 1;
-            }
-            50% {
-                opacity: .5;
-            }
-        }
-        .card-glow {
-            box-shadow: 0 0 20px rgba(59, 130, 246, 0.1);
-        }
-        .modal-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: rgba(0, 0, 0, 0.5);
-            z-index: 40;
-        }
-        .modal-overlay.active {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
+      body {
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+
+      .json-viewer {
+        white-space: pre-wrap;
+        word-break: break-word;
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.3rem 0.7rem;
+        border-radius: 9999px;
+        font-size: 0.75rem;
+        font-weight: 600;
+      }
+
+      .status-online {
+        background: rgba(34, 197, 94, 0.12);
+        color: #86efac;
+      }
+
+      .status-offline {
+        background: rgba(239, 68, 68, 0.12);
+        color: #fca5a5;
+      }
     </style>
-</head>
-<body class="bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 min-h-screen">
-    <!-- Navigation -->
-    <nav class="bg-slate-900 border-b border-slate-700 sticky top-0 z-30">
+  </head>
+  <body class="bg-slate-950 text-slate-100 min-h-screen">
+    <div class="min-h-screen">
+      <header class="bg-slate-900 border-b border-slate-700 sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-blue-500 rounded-lg flex items-center justify-center">
-                    <span class="text-white font-bold text-lg">C</span>
-                </div>
-                <h1 class="text-white text-2xl font-bold">CHIXUS Platform</h1>
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+              <span class="text-lg font-bold">C</span>
             </div>
-            <div class="flex items-center gap-4">
-                <button id="refreshBtn" class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition">
-                    🔄 Refresh
-                </button>
-                <button id="settingsBtn" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">
-                    ⚙️ Settings
-                </button>
-            </div>
-        </div>
-    </nav>
+            <h1 class="text-2xl font-bold text-cyan-400">CHIXUS Edge Control</h1>
+          </div>
 
-    <!-- Main Content -->
-    <main class="max-w-7xl mx-auto px-6 py-8">
-        <!-- Overview Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <!-- Node Status Card -->
-            <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 card-glow">
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-slate-300 text-sm font-medium">Live Node Status</h3>
-                    <span class="text-2xl">🟢</span>
-                </div>
-                <div class="space-y-2">
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">Online</span>
-                        <span id="nodesOnline" class="text-3xl font-bold text-green-400">0</span>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">Offline</span>
-                        <span id="nodesOffline" class="text-3xl font-bold text-red-400">0</span>
-                    </div>
-                </div>
-                <div class="mt-4 w-full bg-slate-700 rounded-full h-2">
-                    <div id="nodeHealthBar" class="bg-green-500 h-2 rounded-full transition-all" style="width: 0%"></div>
-                </div>
-            </div>
-
-            <!-- Sync Queue Card -->
-            <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 card-glow">
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-slate-300 text-sm font-medium">Sync Queue Backlog</h3>
-                    <span class="text-2xl">📊</span>
-                </div>
-                <div class="space-y-2">
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">Pending</span>
-                        <span id="syncPending" class="text-3xl font-bold text-yellow-400">0</span>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">Processing</span>
-                        <span id="syncProcessing" class="text-3xl font-bold text-blue-400">0</span>
-                    </div>
-                </div>
-                <div class="mt-4 text-xs text-slate-500">Last updated: <span id="syncTimestamp">--:--:--</span></div>
-            </div>
-
-            <!-- Ledger Card -->
-            <div class="bg-slate-800 border border-slate-700 rounded-xl p-6 card-glow">
-                <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-slate-300 text-sm font-medium">Ledger Records</h3>
-                    <span class="text-2xl">🔐</span>
-                </div>
-                <div class="space-y-2">
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">Total Verified</span>
-                        <span id="ledgerTotal" class="text-3xl font-bold text-purple-400">0</span>
-                    </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-slate-400">Verification Rate</span>
-                        <span id="ledgerRate" class="text-xl font-bold text-green-400">100%</span>
-                    </div>
-                </div>
-                <div class="mt-4 text-xs text-slate-500">Last sync: <span id="ledgerTimestamp">--:--:--</span></div>
-            </div>
-        </div>
-
-        <!-- Tabs -->
-        <div class="mb-6 flex gap-2 border-b border-slate-700">
-            <button class="tab-button active px-6 py-3 text-white border-b-2 border-blue-500 transition" data-tab="nodes">
-                📡 Node Telemetry
+          <div class="flex items-center gap-3">
+            <button id="refreshBtn" class="px-4 py-2 bg-cyan-600 hover:bg-cyan-500 rounded-lg font-medium transition shadow-lg shadow-cyan-500/20">
+              Refresh
             </button>
-            <button class="tab-button px-6 py-3 text-slate-400 hover:text-white transition" data-tab="tokens">
-                🔑 Access Tokens
+            <button id="settingsBtn" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-medium transition">
+              Settings
             </button>
-            <button class="tab-button px-6 py-3 text-slate-400 hover:text-white transition" data-tab="ledger">
-                📜 Verification Ledger
-            </button>
+          </div>
         </div>
+      </header>
 
-        <!-- Tab Contents -->
-
-        <!-- Node Telemetry Tab -->
-        <div id="nodes-tab" class="tab-content active">
-            <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-                <div class="overflow-x-auto">
-                    <table class="w-full">
-                        <thead>
-                            <tr class="bg-slate-700 border-b border-slate-600">
-                                <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Node ID</th>
-                                <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Status</th>
-                                <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">CPU</th>
-                                <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Memory</th>
-                                <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Disk</th>
-                                <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Last Heartbeat</th>
-                                <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Pending Sync</th>
-                            </tr>
-                        </thead>
-                        <tbody id="nodesTableBody">
-                            <tr class="border-b border-slate-700 hover:bg-slate-700 transition">
-                                <td colspan="7" class="px-6 py-8 text-center text-slate-400">
-                                    Loading node data...
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
+      <main class="max-w-7xl mx-auto px-6 py-8 space-y-8">
+        <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 shadow-xl shadow-slate-950/30">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-slate-400">Live Node Status</p>
+                <p id="liveNodeCount" class="text-3xl font-bold text-emerald-400 mt-2">0</p>
+              </div>
+              <div class="text-3xl">🟢</div>
             </div>
-        </div>
+            <p class="mt-4 text-xs text-slate-500">Active nodes online</p>
+          </div>
 
-        <!-- Access Tokens Tab -->
-        <div id="tokens-tab" class="tab-content hidden">
+          <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 shadow-xl shadow-slate-950/30">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-slate-400">Sync Queue Backlog</p>
+                <p id="queueBacklogCount" class="text-3xl font-bold text-yellow-400 mt-2">0</p>
+              </div>
+              <div class="text-3xl">⏳</div>
+            </div>
+            <p class="mt-4 text-xs text-slate-500">Pending synchronization tasks</p>
+          </div>
+
+          <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 shadow-xl shadow-slate-950/30">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-slate-400">Verified Ledger Records</p>
+                <p id="ledgerRecordCount" class="text-3xl font-bold text-cyan-400 mt-2">0</p>
+              </div>
+              <div class="text-3xl">📋</div>
+            </div>
+            <p class="mt-4 text-xs text-slate-500">Records validated in ledger</p>
+          </div>
+        </section>
+
+        <section class="bg-slate-900 border border-slate-700 rounded-xl p-5 shadow-xl shadow-slate-950/30">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-xl font-bold">Node Telemetry</h2>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+              <thead>
+                <tr class="border-b border-slate-700 text-slate-400 text-sm">
+                  <th class="py-3 px-4 font-semibold">Node ID</th>
+                  <th class="py-3 px-4 font-semibold">Status</th>
+                  <th class="py-3 px-4 font-semibold">Pending Sync</th>
+                  <th class="py-3 px-4 font-semibold">Last Heartbeat</th>
+                </tr>
+              </thead>
+              <tbody id="nodeTableBody" class="text-sm">
+                <tr>
+                  <td colspan="4" class="py-8 text-center text-slate-400">Loading node telemetry...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 shadow-xl shadow-slate-950/30">
+            <h2 class="text-xl font-bold mb-5">Token Revocation</h2>
             <div class="space-y-4">
-                <div class="flex justify-between items-center">
-                    <h3 class="text-xl font-bold text-white">Active Tokens</h3>
-                    <button id="generateTokenBtn" class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition">
-                        + Generate Token
-                    </button>
-                </div>
-                <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden">
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead>
-                                <tr class="bg-slate-700 border-b border-slate-600">
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Token ID</th>
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Token Type</th>
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Status</th>
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Created</th>
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tokensTableBody">
-                                <tr class="border-b border-slate-700 hover:bg-slate-700 transition">
-                                    <td colspan="5" class="px-6 py-8 text-center text-slate-400">
-                                        Loading tokens...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+              <div>
+                <label class="block text-sm text-slate-300 mb-2">Token ID / Hash</label>
+                <input id="tokenInput" type="text" class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-100" placeholder="Enter token value" />
+              </div>
+              <button id="revokeBtn" class="w-full px-4 py-3 rounded-lg bg-red-600 hover:bg-red-500 transition font-semibold">
+                Revoke
+              </button>
+              <div id="revokeStatus" class="min-h-[1.5rem] text-sm text-slate-300"></div>
             </div>
-        </div>
+          </div>
 
-        <!-- Verification Ledger Tab -->
-        <div id="ledger-tab" class="tab-content hidden">
+          <div class="bg-slate-900 border border-slate-700 rounded-xl p-5 shadow-xl shadow-slate-950/30">
+            <h2 class="text-xl font-bold mb-5">Ledger Audit Search</h2>
             <div class="space-y-4">
-                <div class="bg-slate-800 border border-slate-700 rounded-xl">
-                    <div class="overflow-x-auto">
-                        <table class="w-full">
-                            <thead>
-                                <tr class="bg-slate-700 border-b border-slate-600">
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Transaction ID</th>
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Action</th>
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Timestamp</th>
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Verification</th>
-                                    <th class="px-6 py-4 text-left text-sm font-semibold text-slate-300">Signature</th>
-                                </tr>
-                            </thead>
-                            <tbody id="ledgerTableBody">
-                                <tr class="border-b border-slate-700 hover:bg-slate-700 transition">
-                                    <td colspan="5" class="px-6 py-8 text-center text-slate-400">
-                                        Loading ledger records...
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+              <div>
+                <label class="block text-sm text-slate-300 mb-2">Record ID</label>
+                <input id="ledgerRecordInput" type="text" class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-100" placeholder="Enter record ID" />
+              </div>
+              <button id="verifyLedgerBtn" class="w-full px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 transition font-semibold">
+                Verify Record
+              </button>
+              <div id="ledgerStatus" class="min-h-[1.5rem] text-sm text-slate-300"></div>
             </div>
+          </div>
+        </section>
+
+        <section id="ledgerResultSection" class="hidden bg-slate-900 border border-slate-700 rounded-xl p-5 shadow-xl shadow-slate-950/30">
+          <h3 class="text-lg font-bold mb-4">Audit Result</h3>
+          <pre id="ledgerResultViewer" class="json-viewer bg-slate-800 border border-slate-700 rounded-lg p-4 text-slate-200 min-h-[200px]"></pre>
+        </section>
+      </main>
+    </div>
+
+    <div id="settingsModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm z-50">
+      <div class="max-w-lg w-[90%] mx-auto mt-24 bg-slate-900 border border-slate-700 rounded-2xl p-6 shadow-2xl shadow-slate-950/60">
+        <div class="flex items-center justify-between mb-6">
+          <h2 class="text-2xl font-bold">Settings</h2>
+          <button id="closeModalBtn" class="text-slate-400 hover:text-white text-xl">✕</button>
         </div>
-    </main>
 
-    <!-- Settings Modal -->
-    <div id="settingsModal" class="modal-overlay">
-        <div class="bg-slate-800 border border-slate-700 rounded-xl p-8 max-w-md w-full mx-4 shadow-2xl">
-            <h2 class="text-2xl font-bold text-white mb-6">Dashboard Settings</h2>
-            
-            <div class="space-y-4">
-                <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-2">Backend API URL</label>
-                    <input type="url" id="apiUrlInput" placeholder="http://localhost:8000" 
-                        class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition">
-                </div>
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm text-slate-300 mb-2">Base API URL</label>
+            <input id="apiUrlInput" type="text" class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-100" placeholder="http://localhost:8000" />
+          </div>
 
-                <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-2">Admin Passkey</label>
-                    <input type="password" id="adminPasskeyInput" placeholder="CHIXUS-ADMIN-@)@^" 
-                        class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition">
-                </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-2">x-admin-passkey</label>
+            <input id="adminPasskeyInput" type="password" class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-100" value="CHIXUS-ADMIN-@)@^" />
+          </div>
 
-                <div>
-                    <label class="block text-sm font-medium text-slate-300 mb-2">Access Token</label>
-                    <input type="password" id="accessTokenInput" placeholder="CHI-9625-NG" 
-                        class="w-full px-4 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 transition">
-                </div>
-
-                <div class="bg-slate-700 rounded-lg p-4">
-                    <p class="text-xs text-slate-400">
-                        <strong>Tip:</strong> Your settings are stored locally in the browser and never sent to external services.
-                    </p>
-                </div>
-            </div>
-
-            <div class="flex gap-3 mt-6">
-                <button id="settingsCancelBtn" class="flex-1 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition">
-                    Cancel
-                </button>
-                <button id="settingsSaveBtn" class="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition font-medium">
-                    Save Settings
-                </button>
-            </div>
+          <div>
+            <label class="block text-sm text-slate-300 mb-2">x-access-token</label>
+            <input id="accessTokenInput" type="password" class="w-full px-4 py-3 rounded-lg bg-slate-800 border border-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 text-slate-100" value="CHI-9625-NG" />
+          </div>
         </div>
+
+        <div class="flex gap-3 mt-8">
+          <button id="cancelSettingsBtn" class="flex-1 px-4 py-3 rounded-lg bg-slate-700 hover:bg-slate-600 transition font-medium">
+            Cancel
+          </button>
+          <button id="saveSettingsBtn" class="flex-1 px-4 py-3 rounded-lg bg-cyan-600 hover:bg-cyan-500 transition font-medium">
+            Save
+          </button>
+        </div>
+      </div>
     </div>
 
     <script>
-        // Configuration Management
-        const CONFIG = {
-            apiUrl: localStorage.getItem('chixus_api_url') || 'http://localhost:8000',
-            adminPasskey: localStorage.getItem('chixus_admin_passkey') || 'CHIXUS-ADMIN-@)@^',
-            accessToken: localStorage.getItem('chixus_access_token') || 'CHI-9625-NG',
+      const STORAGE_KEYS = {
+        baseApiUrl: 'chixus_base_api_url',
+        adminPasskey: 'chixus_admin_passkey',
+        accessToken: 'chixus_access_token'
+      };
+
+      const defaultConfig = {
+        baseApiUrl: 'http://localhost:8000',
+        adminPasskey: 'CHIXUS-ADMIN-@)@^',
+        accessToken: 'CHI-9625-NG'
+      };
+
+      function getConfig() {
+        const stored = {
+          baseApiUrl: localStorage.getItem(STORAGE_KEYS.baseApiUrl),
+          adminPasskey: localStorage.getItem(STORAGE_KEYS.adminPasskey),
+          accessToken: localStorage.getItem(STORAGE_KEYS.accessToken)
         };
 
-        // Tab Switching
-        document.querySelectorAll('.tab-button').forEach(button => {
-            button.addEventListener('click', function() {
-                const tabName = this.dataset.tab;
-                
-                document.querySelectorAll('.tab-button').forEach(b => {
-                    b.classList.remove('active', 'border-b-2', 'border-blue-500', 'text-white');
-                    b.classList.add('text-slate-400');
-                });
-                this.classList.add('active', 'border-b-2', 'border-blue-500', 'text-white');
-                this.classList.remove('text-slate-400');
+        return {
+          baseApiUrl: stored.baseApiUrl || defaultConfig.baseApiUrl,
+          adminPasskey: stored.adminPasskey || defaultConfig.adminPasskey,
+          accessToken: stored.accessToken || defaultConfig.accessToken
+        };
+      }
 
-                document.querySelectorAll('.tab-content').forEach(content => {
-                    content.classList.add('hidden');
-                    content.classList.remove('active');
-                });
-                document.getElementById(tabName + '-tab').classList.remove('hidden');
-                document.getElementById(tabName + '-tab').classList.add('active');
+      function setConfig(config) {
+        localStorage.setItem(STORAGE_KEYS.baseApiUrl, config.baseApiUrl);
+        localStorage.setItem(STORAGE_KEYS.adminPasskey, config.adminPasskey);
+        localStorage.setItem(STORAGE_KEYS.accessToken, config.accessToken);
+      }
 
-                if (tabName === 'nodes') {
-                    fetchNodeTelemetry();
-                } else if (tabName === 'tokens') {
-                    fetchTokens();
-                } else if (tabName === 'ledger') {
-                    fetchLedgerRecords();
-                }
-            });
-        });
+      function renderNodeTable(nodes) {
+        const tbody = document.getElementById('nodeTableBody');
 
-        // Settings Modal
-        const settingsModal = document.getElementById('settingsModal');
-        document.getElementById('settingsBtn').addEventListener('click', () => {
-            document.getElementById('apiUrlInput').value = CONFIG.apiUrl;
-            document.getElementById('adminPasskeyInput').value = CONFIG.adminPasskey;
-            document.getElementById('accessTokenInput').value = CONFIG.accessToken;
-            settingsModal.classList.add('active');
-        });
+        if (!nodes || nodes.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="4" class="py-8 text-center text-slate-400">No node data available.</td></tr>';
+          return;
+        }
 
-        document.getElementById('settingsCancelBtn').addEventListener('click', () => {
-            settingsModal.classList.remove('active');
-        });
+        tbody.innerHTML = nodes.map((node) => {
+          const status = node.status === 'online' || node.status === 'healthy' ? 'Online' : 'Offline';
+          const statusClass = status === 'Online' ? 'status-online' : 'status-offline';
+          const heartbeat = node.last_heartbeat ? new Date(node.last_heartbeat).toLocaleString() : 'N/A';
 
-        document.getElementById('settingsSaveBtn').addEventListener('click', () => {
-            CONFIG.apiUrl = document.getElementById('apiUrlInput').value;
-            CONFIG.adminPasskey = document.getElementById('adminPasskeyInput').value;
-            CONFIG.accessToken = document.getElementById('accessTokenInput').value;
+          return `
+            <tr class="border-b border-slate-700 hover:bg-slate-800/80 transition">
+              <td class="py-3 px-4 font-mono text-cyan-300">${node.node_id || node.id || 'N/A'}</td>
+              <td class="py-3 px-4">
+                <span class="status-pill ${statusClass}">${status}</span>
+              </td>
+              <td class="py-3 px-4 text-slate-200">${node.pending_sync ?? node.pendingSync ?? 0}</td>
+              <td class="py-3 px-4 text-slate-300">${heartbeat}</td>
+            </tr>
+          `;
+        }).join('');
+      }
 
-            localStorage.setItem('chixus_api_url', CONFIG.apiUrl);
-            localStorage.setItem('chixus_admin_passkey', CONFIG.adminPasskey);
-            localStorage.setItem('chixus_access_token', CONFIG.accessToken);
+      async function refreshDashboard() {
+        const config = getConfig();
+        const endpoint = `${config.baseApiUrl}/api/node/health`;
 
-            settingsModal.classList.remove('active');
-            alert('Settings saved! Refreshing dashboard...');
-            location.reload();
-        });
-
-        // API Calls
-        async function fetchNodeTelemetry() {
-            try {
-                const response = await fetch(`${CONFIG.apiUrl}/api/node/health`, {
-                    headers: {
-                        'x-access-token': CONFIG.accessToken,
-                    }
-                });
-                const data = await response.json();
-                renderNodeTelemetry(data);
-                updateNodeStatus(data);
-            } catch (error) {
-                console.error('Error fetching node telemetry:', error);
-                document.getElementById('nodesTableBody').innerHTML = `
-                    <tr><td colspan="7" class="px-6 py-8 text-center text-red-400">
-                        Failed to load node data. Check your settings and API connection.
-                    </td></tr>
-                `;
+        try {
+          const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-passkey': config.adminPasskey,
+              'x-access-token': config.accessToken
             }
+          });
+
+          if (!response.ok) {
+            throw new Error(`Error fetching node health (${response.status})`);
+          }
+
+          const data = await response.json();
+          const nodes = Array.isArray(data) ? data : (data.nodes || []);
+          const liveNodeCount = nodes.filter((node) => node.status === 'online' || node.status === 'healthy').length;
+          const queueBacklog = data.sync_queue_backlog ?? data.syncQueueBacklog ?? data.backlog ?? 0;
+          const ledgerCount = data.verified_ledger_records ?? data.verifiedLedgerRecords ?? data.ledger_count ?? 0;
+
+          document.getElementById('liveNodeCount').textContent = String(liveNodeCount);
+          document.getElementById('queueBacklogCount').textContent = String(queueBacklog);
+          document.getElementById('ledgerRecordCount').textContent = String(ledgerCount);
+          renderNodeTable(nodes);
+        } catch (error) {
+          document.getElementById('nodeTableBody').innerHTML = '<tr><td colspan="4" class="py-8 text-center text-red-400">Failed to load node telemetry.</td></tr>';
+          console.error(error);
+        }
+      }
+
+      async function revokeToken() {
+        const tokenValue = document.getElementById('tokenInput').value.trim();
+        if (!tokenValue) {
+          document.getElementById('revokeStatus').textContent = 'Please enter a token ID or hash.';
+          document.getElementById('revokeStatus').className = 'min-h-[1.5rem] text-sm text-red-400';
+          return;
         }
 
-        async function fetchTokens() {
-            try {
-                const response = await fetch(`${CONFIG.apiUrl}/api/auth/tokens`, {
-                    headers: {
-                        'x-admin-passkey': CONFIG.adminPasskey,
-                    }
-                });
-                const data = await response.json();
-                renderTokens(data);
-            } catch (error) {
-                console.error('Error fetching tokens:', error);
-                document.getElementById('tokensTableBody').innerHTML = `
-                    <tr><td colspan="5" class="px-6 py-8 text-center text-red-400">
-                        Failed to load tokens. Check your admin passkey.
-                    </td></tr>
-                `;
+        const config = getConfig();
+        const endpoint = `${config.baseApiUrl}/api/auth/revoke-token`;
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-passkey': config.adminPasskey,
+              'x-access-token': config.accessToken
+            },
+            body: JSON.stringify({ token_id: tokenValue })
+          });
+
+          if (!response.ok) {
+            throw new Error(`Revoke request failed (${response.status})`);
+          }
+
+          document.getElementById('revokeStatus').textContent = 'Token revoked successfully.';
+          document.getElementById('revokeStatus').className = 'min-h-[1.5rem] text-sm text-emerald-400';
+          document.getElementById('tokenInput').value = '';
+        } catch (error) {
+          document.getElementById('revokeStatus').textContent = 'Token revocation failed.';
+          document.getElementById('revokeStatus').className = 'min-h-[1.5rem] text-sm text-red-400';
+          console.error(error);
+        }
+      }
+
+      async function verifyLedgerRecord() {
+        const recordId = document.getElementById('ledgerRecordInput').value.trim();
+        if (!recordId) {
+          document.getElementById('ledgerStatus').textContent = 'Please enter a record ID.';
+          document.getElementById('ledgerStatus').className = 'min-h-[1.5rem] text-sm text-red-400';
+          return;
+        }
+
+        const config = getConfig();
+        const endpoint = `${config.baseApiUrl}/api/ledger/verify/${encodeURIComponent(recordId)}`;
+
+        try {
+          const response = await fetch(endpoint, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-passkey': config.adminPasskey,
+              'x-access-token': config.accessToken
             }
+          });
+
+          if (!response.ok) {
+            throw new Error(`Ledger verification failed (${response.status})`);
+          }
+
+          const result = await response.json();
+          document.getElementById('ledgerResultViewer').textContent = JSON.stringify(result, null, 2);
+          document.getElementById('ledgerResultSection').classList.remove('hidden');
+          document.getElementById('ledgerStatus').textContent = 'Record verified successfully.';
+          document.getElementById('ledgerStatus').className = 'min-h-[1.5rem] text-sm text-emerald-400';
+        } catch (error) {
+          document.getElementById('ledgerStatus').textContent = 'Ledger verification failed.';
+          document.getElementById('ledgerStatus').className = 'min-h-[1.5rem] text-sm text-red-400';
+          console.error(error);
         }
+      }
 
-        async function fetchLedgerRecords() {
-            try {
-                const response = await fetch(`${CONFIG.apiUrl}/api/ledger/recent`, {
-                    headers: {
-                        'x-access-token': CONFIG.accessToken,
-                    }
-                });
-                const data = await response.json();
-                renderLedgerRecords(data);
-            } catch (error) {
-                console.error('Error fetching ledger records:', error);
-                document.getElementById('ledgerTableBody').innerHTML = `
-                    <tr><td colspan="5" class="px-6 py-8 text-center text-red-400">
-                        Failed to load ledger records.
-                    </td></tr>
-                `;
-            }
+      function openSettingsModal() {
+        const config = getConfig();
+        document.getElementById('apiUrlInput').value = config.baseApiUrl;
+        document.getElementById('adminPasskeyInput').value = config.adminPasskey;
+        document.getElementById('accessTokenInput').value = config.accessToken;
+        document.getElementById('settingsModal').classList.remove('hidden');
+      }
+
+      function closeSettingsModal() {
+        document.getElementById('settingsModal').classList.add('hidden');
+      }
+
+      function saveSettingsFromModal() {
+        const updatedConfig = {
+          baseApiUrl: document.getElementById('apiUrlInput').value.trim() || defaultConfig.baseApiUrl,
+          adminPasskey: document.getElementById('adminPasskeyInput').value.trim() || defaultConfig.adminPasskey,
+          accessToken: document.getElementById('accessTokenInput').value.trim() || defaultConfig.accessToken
+        };
+
+        setConfig(updatedConfig);
+        closeSettingsModal();
+        refreshDashboard();
+      }
+
+      document.getElementById('settingsBtn').addEventListener('click', openSettingsModal);
+      document.getElementById('closeModalBtn').addEventListener('click', closeSettingsModal);
+      document.getElementById('cancelSettingsBtn').addEventListener('click', closeSettingsModal);
+      document.getElementById('saveSettingsBtn').addEventListener('click', saveSettingsFromModal);
+      document.getElementById('refreshBtn').addEventListener('click', refreshDashboard);
+      document.getElementById('revokeBtn').addEventListener('click', revokeToken);
+      document.getElementById('verifyLedgerBtn').addEventListener('click', verifyLedgerRecord);
+
+      document.getElementById('settingsModal').addEventListener('click', (event) => {
+        if (event.target.id === 'settingsModal') {
+          closeSettingsModal();
         }
+      });
 
-        function renderNodeTelemetry(data) {
-            const nodes = Array.isArray(data) ? data : data.nodes || [];
-            if (nodes.length === 0) {
-                document.getElementById('nodesTableBody').innerHTML = `
-                    <tr><td colspan="7" class="px-6 py-8 text-center text-slate-400">
-                        No nodes found
-                    </td></tr>
-                `;
-                return;
-            }
-
-            document.getElementById('nodesTableBody').innerHTML = nodes.map(node => {
-                const isOnline = node.status === 'healthy' || node.status === 'online';
-                const statusClass = isOnline ? 'status-online' : 'status-offline';
-                const statusText = isOnline ? 'Online' : 'Offline';
-                
-                return `
-                    <tr class="border-b border-slate-700 hover:bg-slate-700 transition">
-                        <td class="px-6 py-4 text-white font-mono text-sm">${node.node_id || 'N/A'}</td>
-                        <td class="px-6 py-4">
-                            <span class="status-indicator ${statusClass}"></span>
-                            <span class="text-white text-sm">${statusText}</span>
-                        </td>
-                        <td class="px-6 py-4 text-slate-300">${(node.cpu_percent || 0).toFixed(1)}%</td>
-                        <td class="px-6 py-4 text-slate-300">${(node.memory_percent || 0).toFixed(1)}%</td>
-                        <td class="px-6 py-4 text-slate-300">${(node.disk_percent || 0).toFixed(1)}%</td>
-                        <td class="px-6 py-4 text-slate-300 text-sm">${formatTime(node.last_heartbeat)}</td>
-                        <td class="px-6 py-4 text-blue-400 font-semibold">${node.pending_sync || 0}</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        function renderTokens(data) {
-            const tokens = Array.isArray(data) ? data : data.tokens || [];
-            if (tokens.length === 0) {
-                document.getElementById('tokensTableBody').innerHTML = `
-                    <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">
-                        No tokens found
-                    </td></tr>
-                `;
-                return;
-            }
-
-            document.getElementById('tokensTableBody').innerHTML = tokens.map(token => {
-                const statusClass = token.is_valid ? 'text-green-400' : 'text-red-400';
-                const statusText = token.is_valid ? '✓ Active' : '✗ Revoked';
-
-                return `
-                    <tr class="border-b border-slate-700 hover:bg-slate-700 transition">
-                        <td class="px-6 py-4 text-white font-mono text-sm">${(token.token_value || 'N/A').substring(0, 16)}...</td>
-                        <td class="px-6 py-4 text-slate-300">${token.token_type || 'access'}</td>
-                        <td class="px-6 py-4 ${statusClass}">${statusText}</td>
-                        <td class="px-6 py-4 text-slate-300 text-sm">${formatTime(token.created_at)}</td>
-                        <td class="px-6 py-4">
-                            ${token.is_valid ? `
-                                <button class="px-3 py-1 bg-red-500 hover:bg-red-600 text-white text-sm rounded transition"
-                                    onclick="revokeToken('${token.token_value}')">
-                                    Revoke
-                                </button>
-                            ` : '<span class="text-slate-500 text-sm">Revoked</span>'}
-                        </td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        function renderLedgerRecords(data) {
-            const records = Array.isArray(data) ? data : data.records || [];
-            if (records.length === 0) {
-                document.getElementById('ledgerTableBody').innerHTML = `
-                    <tr><td colspan="5" class="px-6 py-8 text-center text-slate-400">
-                        No ledger records found
-                    </td></tr>
-                `;
-                return;
-            }
-
-            document.getElementById('ledgerTableBody').innerHTML = records.map(record => {
-                const verifiedClass = record.verified ? 'text-green-400' : 'text-red-400';
-                const verifiedText = record.verified ? '✓ Verified' : '✗ Failed';
-
-                return `
-                    <tr class="border-b border-slate-700 hover:bg-slate-700 transition">
-                        <td class="px-6 py-4 text-white font-mono text-sm">${(record.transaction_hash || 'N/A').substring(0, 16)}...</td>
-                        <td class="px-6 py-4 text-slate-300">${record.action || 'N/A'}</td>
-                        <td class="px-6 py-4 text-slate-300 text-sm">${formatTime(record.timestamp)}</td>
-                        <td class="px-6 py-4 ${verifiedClass}">${verifiedText}</td>
-                        <td class="px-6 py-4 text-slate-500 font-mono text-xs">${(record.signature || 'N/A').substring(0, 12)}...</td>
-                    </tr>
-                `;
-            }).join('');
-        }
-
-        function updateNodeStatus(data) {
-            const nodes = Array.isArray(data) ? data : data.nodes || [];
-            const online = nodes.filter(n => n.status === 'healthy' || n.status === 'online').length;
-            const offline = nodes.length - online;
-            const healthPercent = nodes.length > 0 ? (online / nodes.length) * 100 : 0;
-
-            document.getElementById('nodesOnline').textContent = online;
-            document.getElementById('nodesOffline').textContent = offline;
-            document.getElementById('nodeHealthBar').style.width = healthPercent + '%';
-        }
-
-        async function revokeToken(tokenValue) {
-            if (!confirm('Are you sure you want to revoke this token?')) return;
-
-            try {
-                const response = await fetch(`${CONFIG.apiUrl}/api/auth/revoke-token`, {
-                    method: 'POST',
-                    headers: {
-                        'x-admin-passkey': CONFIG.adminPasskey,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ token: tokenValue, reason: 'revoked_from_dashboard' })
-                });
-
-                if (response.ok) {
-                    alert('Token revoked successfully');
-                    fetchTokens();
-                } else {
-                    alert('Failed to revoke token');
-                }
-            } catch (error) {
-                console.error('Error revoking token:', error);
-                alert('Error revoking token');
-            }
-        }
-
-        function formatTime(timestamp) {
-            if (!timestamp) return 'N/A';
-            try {
-                const date = new Date(typeof timestamp === 'number' ? timestamp * 1000 : timestamp);
-                return date.toLocaleString();
-            } catch {
-                return 'N/A';
-            }
-        }
-
-        // Refresh Button
-        document.getElementById('refreshBtn').addEventListener('click', () => {
-            fetchNodeTelemetry();
-            fetchTokens();
-            fetchLedgerRecords();
-            updateTimestamps();
-        });
-
-        function updateTimestamps() {
-            document.getElementById('syncTimestamp').textContent = new Date().toLocaleTimeString();
-            document.getElementById('ledgerTimestamp').textContent = new Date().toLocaleTimeString();
-        }
-
-        // Initial Load
-        document.addEventListener('DOMContentLoaded', () => {
-            fetchNodeTelemetry();
-            updateTimestamps();
-            setInterval(updateTimestamps, 1000);
-            setInterval(fetchNodeTelemetry, 30000); // Refresh every 30 seconds
-        });
+      window.addEventListener('DOMContentLoaded', () => {
+        const config = getConfig();
+        document.getElementById('apiUrlInput').value = config.baseApiUrl;
+        document.getElementById('adminPasskeyInput').value = config.adminPasskey;
+        document.getElementById('accessTokenInput').value = config.accessToken;
+        refreshDashboard();
+      });
     </script>
-</body>
+  </body>
 </html>
