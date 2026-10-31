@@ -2,7 +2,7 @@
 CHIXUS Edge Rate Limiting & Anti-Abuse Protection System
 In-memory sliding window rate limiter with per-IP and per-token tracking
 Environment: Termux on ARM64 Android
-Master Passkey: CHIXUS-ADMIN-@)@^
+Credentials are supplied through environment configuration; never hard-code secrets.
 """
 
 import time

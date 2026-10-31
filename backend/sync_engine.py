@@ -2,7 +2,7 @@
 CHIXUS Edge Sync Engine with Batch Processing & Last-Write-Wins Conflict Resolution
 Manages offline queuing, batch synchronization, and conflict resolution
 Environment: Termux on ARM64 Android
-Master Passkey: CHIXUS-ADMIN-@)@^
+Credentials are supplied through environment configuration; never hard-code secrets.
 """
 
 import sqlite3

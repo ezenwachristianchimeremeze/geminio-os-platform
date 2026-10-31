@@ -2,10 +2,12 @@
 CHIXUS Node Health Monitoring & Heartbeat Service
 FastAPI router for distributed edge node health tracking and status monitoring
 Environment: Termux on ARM64 Android
-Master Passkey: CHIXUS-ADMIN-@)@^
+Credentials are supplied through environment configuration; never hard-code secrets.
 """
 
 import sqlite3
+import os
+import hmac
 import json
 import logging
 from datetime import datetime, timedelta
@@ -506,8 +508,12 @@ async def verify_admin_passkey_health(
     Raises:
         HTTPException: If invalid
     """
-    expected_passkey = "CHIXUS-ADMIN-@)@^"
+    expected_passkey = os.environ.get("CHIXUS_ADMIN_PASSKEY", "")
     
+    if not expected_passkey:
+        logger.error("Admin authentication is not configured; refusing privileged access")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Admin authentication is not configured")
+
     if not x_admin_passkey:
         logger.warning("Health check: missing X-Admin-Passkey header")
         raise HTTPException(
@@ -515,7 +521,7 @@ async def verify_admin_passkey_health(
             detail="Missing admin passkey"
         )
     
-    if x_admin_passkey != expected_passkey:
+    if not hmac.compare_digest(x_admin_passkey, expected_passkey):
         logger.warning(f"Health check: invalid admin passkey attempt")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

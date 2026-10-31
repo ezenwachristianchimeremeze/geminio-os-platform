@@ -2,7 +2,7 @@
 CHIXUS Test Fixtures & Configuration
 Provides isolated test database, FastAPI test client, and mock authentication headers
 Environment: Termux on ARM64 Android
-Master Passkey: CHIXUS-ADMIN-@)@^
+Credentials are supplied through environment configuration; never hard-code secrets.
 """
 
 import os
@@ -24,8 +24,8 @@ from verify_team.team_backend import create_app
 
 class MockConfig:
     """Mock configuration for testing"""
-    ADMIN_PASSKEY = "CHIXUS-ADMIN-@)@^"
-    ACCESS_TOKEN = "CHI-9625-NG"
+    ADMIN_PASSKEY = os.environ.get("TEST_ADMIN_PASSKEY", "test-only-admin-passkey")
+    ACCESS_TOKEN = os.environ.get("TEST_ACCESS_TOKEN", "test-only-access-token")
     INVALID_TOKEN = "INVALID-TOKEN-12345"
 
 

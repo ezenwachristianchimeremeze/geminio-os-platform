@@ -2,7 +2,7 @@
 CHIXUS OpenAPI Schema & API Documentation Customization
 Provides standardized API documentation, security scheme definitions, and route organization
 Environment: Termux on ARM64 Android
-Master Passkey: CHIXUS-ADMIN-@)@^
+Credentials are supplied through environment configuration; never hard-code secrets.
 """
 
 import logging
