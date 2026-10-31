@@ -2,11 +2,13 @@
 CHIXUS Node Health Monitoring & Heartbeat Service
 FastAPI router for distributed edge node health tracking and status monitoring
 Environment: Termux on ARM64 Android
-Master Passkey: CHIXUS-ADMIN-@)@^
+Credential handling: load privileged credentials from environment; never commit them.
 """
 
+import os
 import sqlite3
 import json
+import hmac
 import logging
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any
@@ -506,7 +508,7 @@ async def verify_admin_passkey_health(
     Raises:
         HTTPException: If invalid
     """
-    expected_passkey = "CHIXUS-ADMIN-@)@^"
+    expected_passkey = os.getenv("CHIXUS_ADMIN_PASSKEY")
     
     if not x_admin_passkey:
         logger.warning("Health check: missing X-Admin-Passkey header")
@@ -515,7 +517,11 @@ async def verify_admin_passkey_health(
             detail="Missing admin passkey"
         )
     
-    if x_admin_passkey != expected_passkey:
+    if not expected_passkey:
+        logger.error("Admin credential is not configured; protected operation is disabled")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Admin authentication is not configured")
+
+    if not hmac.compare_digest(x_admin_passkey, expected_passkey):
         logger.warning(f"Health check: invalid admin passkey attempt")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -650,7 +656,7 @@ async def get_cluster_health(
     """
     Get cluster health summary
     
-    Requires X-Admin-Passkey header with master passkey value.
+    Requires an X-Admin-Passkey header configured by the server operator.
     Returns status of all nodes, calculating offline status based on last_seen > 5 minutes.
     """
     summary_data = health_db.get_cluster_health_summary()
