@@ -104,11 +104,11 @@
         </div>
         <div>
           <label class="text-slate-400 text-xs block mb-1">Admin Passkey (x-admin-passkey)</label>
-          <input id="config-passkey" type="password" value="CHIXUS-ADMIN-@)@^" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-blue-500" />
+          <input id="config-passkey" type="password" placeholder="Enter for this session" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-blue-500" />
         </div>
         <div>
           <label class="text-slate-400 text-xs block mb-1">Operator Token (x-access-token)</label>
-          <input id="config-token" type="password" value="CHI-9625-NG" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-blue-500" />
+          <input id="config-token" type="password" placeholder="Enter for this session" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-slate-100 focus:outline-none focus:border-blue-500" />
         </div>
       </div>
       <div class="flex justify-end space-x-2 pt-2">
@@ -120,17 +120,18 @@
 
   <script>
     let API_URL = localStorage.getItem('chixus_api_url') || 'http://localhost:8000';
-    let PASSKEY = localStorage.getItem('chixus_passkey') || 'CHIXUS-ADMIN-@)@^';
-    let TOKEN = localStorage.getItem('chixus_token') || 'CHI-9625-NG';
+    let PASSKEY = '';
+    let TOKEN = '';
 
     function toggleConfigModal() { document.getElementById('config-modal').classList.toggle('hidden'); }
     function saveConfig() {
       API_URL = document.getElementById('config-url').value.trim();
       PASSKEY = document.getElementById('config-passkey').value.trim();
       TOKEN = document.getElementById('config-token').value.trim();
+      if (!PASSKEY || !TOKEN) { alert('Enter credentials for this session. They are not saved in browser storage.'); return; }
+      PASSKEY = document.getElementById('config-passkey').value.trim();
+      TOKEN = document.getElementById('config-token').value.trim();
       localStorage.setItem('chixus_api_url', API_URL);
-      localStorage.setItem('chixus_passkey', PASSKEY);
-      localStorage.setItem('chixus_token', TOKEN);
       toggleConfigModal();
       refreshDashboard();
     }
