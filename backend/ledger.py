@@ -2,9 +2,10 @@
 CHIXUS Cryptographic Data Verification & Ledger Payload Integrity
 FastAPI router and cryptographic module for deterministic signature verification
 Environment: Termux on ARM64 Android
-Master Passkey: CHIXUS-ADMIN-@)@^
+Credential handling: load privileged credentials from environment; never commit them.
 """
 
+import os
 import sqlite3
 import json
 import logging
@@ -569,7 +570,7 @@ async def verify_admin_passkey_ledger(
     Raises:
         HTTPException: If invalid
     """
-    expected_passkey = "CHIXUS-ADMIN-@)@^"
+    expected_passkey = os.getenv("CHIXUS_ADMIN_PASSKEY")
 
     if not x_admin_passkey:
         logger.warning("Ledger: missing X-Admin-Passkey header")
@@ -578,7 +579,11 @@ async def verify_admin_passkey_ledger(
             detail="Missing admin passkey"
         )
 
-    if x_admin_passkey != expected_passkey:
+    if not expected_passkey:
+        logger.error("Admin credential is not configured; protected operation is disabled")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Admin authentication is not configured")
+
+    if not hmac.compare_digest(x_admin_passkey, expected_passkey):
         logger.warning(f"Ledger: invalid admin passkey attempt")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
