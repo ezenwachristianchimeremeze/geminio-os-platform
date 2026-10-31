@@ -2,7 +2,7 @@
 CHIXUS Centralized Middleware for Global Exception Handling & Request Logging
 Provides standardized error responses and comprehensive request/response logging
 Environment: Termux on ARM64 Android
-Master Passkey: CHIXUS-ADMIN-@)@^
+Credential handling: load privileged credentials from environment; never commit them.
 """
 
 import logging
