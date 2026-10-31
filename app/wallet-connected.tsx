@@ -31,5 +31,5 @@ export default function WalletConnectedScreen() {
 const styles = StyleSheet.create({
   safe:{flex:1,backgroundColor:C.bg},content:{padding:S.lg},eyebrow:{color:C.primary,fontWeight:"800",letterSpacing:1.2,fontSize:11},title:{color:C.text,fontSize:26,fontWeight:"800",marginTop:S.sm},
   card:{backgroundColor:C.card,borderColor:C.border,borderWidth:1,borderRadius:20,padding:S.lg,marginTop:S.lg,minHeight:130,justifyContent:"center"},
-  balance:{fontSize:32,fontWeight:"900",color:C.text},refresh:{color:C.primary,fontWeight:"700",marginTop:S.md},button:{backgroundColor:C.primary,padding:16,borderRadius:14,alignItems:"center",marginTop:S.lg},buttonText:{color:"#fff",fontWeight:"800"},error:{color:C.error},retry:{padding:12,alignItems:"center},retryText:{color:C.primary,fontWeight:"700"},foot:{color:C.muted,fontSize:11,lineHeight:17,marginTop:S.lg}
+  balance:{fontSize:32,fontWeight:"900",color:C.text},refresh:{color:C.primary,fontWeight:"700",marginTop:S.md},button:{backgroundColor:C.primary,padding:16,borderRadius:14,alignItems:"center",marginTop:S.lg},buttonText:{color:"#fff",fontWeight:"800"},error:{color:C.error},retry:{padding:12,alignItems:"center"},retryText:{color:C.primary,fontWeight:"700"},foot:{color:C.muted,fontSize:11,lineHeight:17,marginTop:S.lg}
 });
